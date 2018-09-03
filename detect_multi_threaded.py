@@ -7,6 +7,8 @@ import time
 from utils.detector_utils import WebcamVideoStream
 import datetime
 import argparse
+import json
+import time
 
 
 frame_processed = 0
@@ -58,13 +60,23 @@ if __name__ == '__main__':
                         default=4, help='Number of workers.')
     parser.add_argument('-q-size', '--queue-size', dest='queue_size', type=int,
                         default=5, help='Size of the queue.')
+    parser.add_argument('--tracker', type=int,
+                        help='the int representing the location of the tracker in the following list: [BOOSTING, MIL,KCF, TLD, MEDIANFLOW, GOTURN, MOSSE, CSRT]')
+    parser.add_argument('--video', type=str, help='path to the video file')
+    parser.add_argument('--annotation-folder', type=str,
+                        default='/home/drussel1/data/custom_annotations/', help='the path to the data')
     args = parser.parse_args()
 
     input_q = Queue(maxsize=args.queue_size)
     output_q = Queue(maxsize=args.queue_size)
 
     if args.is_file:
-        video_capture = cv2.VideoCapture(args.video_source)
+        video_capture = cv2.VideoCapture(args.video)
+        print(args.video)
+        ok, frame = video_capture.read()
+        #cv2.imshow('', frame)
+        #time.sleep(2)
+        
     else:
         video_capture = WebcamVideoStream(src=args.video_source,
                                       width=args.width,
@@ -94,13 +106,32 @@ if __name__ == '__main__':
     index = 0
 
     cv2.namedWindow('Multi-Threaded Detection', cv2.WINDOW_NORMAL)
+    #tracking section
+    annotation_file = args.annotation_folder + args.video.split('/')[-1].replace('mp4', 'json')
+    print(annotation_file)
+    json = json.load(open(annotation_file, 'r'))
+
+    initial_bb_dict = list(json[0].values())[0]
+    print(initial_bb_dict)
+    init_bbox = (initial_bb_dict['x'], initial_bb_dict['y'], initial_bb_dict['w'], initial_bb_dict['h'])
+    tracker = cv2.TrackerKCF_create()
+    is_first = True
 
     while True:
         if args.is_file:
             ret, frame = video_capture.read()
         else:
             frame = video_capture.read()
-        frame = cv2.flip(frame, 1)
+        #frame = cv2.flip(frame, 1)
+        
+        #init tracker if it's the first frame
+        if is_first:
+            ok = tracker.init(frame, init_bbox)
+            tracker_bbox = init_bbox
+            is_first = False
+        else:
+            ok, tracker_bbox = tracker.update(frame)
+        print(index)
         index += 1
 
         input_q.put(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -119,6 +150,12 @@ if __name__ == '__main__':
                 if (args.fps > 0):
                     detector_utils.draw_fps_on_image(
                         "FPS : " + str(int(fps)), output_frame)
+                # draw the tracker output
+                p1 = (int(tracker_bbox[0]), int(tracker_bbox[1]))
+                p2 = (int(tracker_bbox[0] + tracker_bbox[2]), int(tracker_bbox[1] + tracker_bbox[3]))
+                print(tracker_bbox)
+                cv2.rectangle(output_frame, p1, p2, (255,0,0), 2, 1)
+
                 cv2.imshow('Multi-Threaded Detection', output_frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     break
