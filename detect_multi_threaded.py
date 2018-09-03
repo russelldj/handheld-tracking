@@ -40,8 +40,10 @@ def worker(input_q, output_q, cap_params, frame_processed):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('-src', '--source', dest='video_source', type=int,
+    parser.add_argument('-src', '--source', dest='video_source', type=str,
                         default=0, help='Device index of the camera.')
+    parser.add_argument('-is-file',  dest='is_file', type=bool,
+                        default=True, help='Device index of the camera.')
     parser.add_argument('-nhands', '--num_hands', dest='num_hands', type=int,
                         default=2, help='Max number of hands to detect.')
     parser.add_argument('-fps', '--fps', dest='fps', type=int,
@@ -61,13 +63,20 @@ if __name__ == '__main__':
     input_q = Queue(maxsize=args.queue_size)
     output_q = Queue(maxsize=args.queue_size)
 
-    video_capture = WebcamVideoStream(src=args.video_source,
+    if args.is_file:
+        video_capture = cv2.VideoCapture(args.video_source)
+    else:
+        video_capture = WebcamVideoStream(src=args.video_source,
                                       width=args.width,
                                       height=args.height).start()
 
     cap_params = {}
     frame_processed = 0
-    cap_params['im_width'], cap_params['im_height'] = video_capture.size()
+    if args.is_file:
+        cap_params['im_width'] = video_capture.get(3)
+        cap_params['im_height'] = video_capture.get(4)
+    else:
+        cap_params['im_width'], cap_params['im_height'] = video_capture.size()
     cap_params['score_thresh'] = score_thresh
 
     # max number of hands we want to detect/track
@@ -87,7 +96,10 @@ if __name__ == '__main__':
     cv2.namedWindow('Multi-Threaded Detection', cv2.WINDOW_NORMAL)
 
     while True:
-        frame = video_capture.read()
+        if args.is_file:
+            ret, frame = video_capture.read()
+        else:
+            frame = video_capture.read()
         frame = cv2.flip(frame, 1)
         index += 1
 
