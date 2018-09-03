@@ -5,12 +5,78 @@ import datetime
 import argparse
 import json
 import time
-
+import numpy as np
 
 detection_graph, sess = detector_utils.load_inference_graph()
+def bb_intersection_over_union(boxA, boxB):
+    """it appears this takes in bbs in the form x1, y1, x2, y2"""
+    # determine the (x, y)-coordinates of the intersection rectangle
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+ 
+    # compute the area of intersection rectangle
+    interArea = max(0, xB - xA + 1) * max(0, yB - yA + 1)
+ 
+    # compute the area of both the prediction and ground-truth
+    # rectangles
+    boxAArea = (boxA[2] - boxA[0] + 1) * (boxA[3] - boxA[1] + 1)
+    boxBArea = (boxB[2] - boxB[0] + 1) * (boxB[3] - boxB[1] + 1)
+ 
+    # compute the intersection over union by taking the intersection
+    # area and dividing it by the sum of prediction + ground-truth
+    # areas - the interesection area
+    iou = interArea / float(boxAArea + boxBArea - interArea)
+ 
+    # return the intersection over union value
+    return iou
 
-def combine_boxes(tracked_box, detected_boxes):
-    """both should be in the same format, I'm not sure what that should be"""
+def corner_distances(boxA, boxB):
+   "this might be a weird metric, but I think it is pretty informative"""
+   del_x1  = np.abs(boxA[0] - boxB[0])
+   del_y1  = np.abs(boxA[1] - boxB[1])
+   del_x2  = np.abs(boxA[2] - boxB[2])
+   del_y2  = np.abs(boxA[3] - boxB[3])
+
+   return np.sqrt(np.square(del_x1) + np.square(del_y1)) + np.sqrt(np.square(del_x2) + np.square(del_y2))
+    
+
+def xywh_to_xyxy(xywh_bbox):
+    x1, y1, w, h = xywh_bbox
+    x2 = x1 + w
+    y2 = y1 + h
+    return (x1, y1, x2, y2)
+
+
+def combine_boxes(tracked_box, detected_boxes, old_box):
+    """both should be in the same format, which is now going to be x1, y1, x2, y2"""
+    # algorithm:
+    # if the tracker is working, then take that
+    # if is stops working, take the nearest (in IOU) detection
+    # continue taking the nearest detection, for now
+    # TODO use the appearance model from KCF to determine if the nearby objects are what we want
+    #print("tracked_box: {}".format(tracked_box))
+    #print("detected_box: {}".format(detected_boxes))
+    if tracked_box[2] == 0 and tracked_box[3] == 0:
+        print("\n\ntracking failed\n\n")
+        max_affinity = -np.inf
+        best_detected_box = (0, 0, 0, 0)
+        for db in detected_boxes:# detected box
+            IOU = bb_intersection_over_union(db, old_box)
+            distance = corner_distances(db, old_box)
+            affinity = IOU - distance / 1000.0 # distance is really only used if both boxes are zero
+            if affinity > max_affinity:
+                max_affinity = affinity
+                best_detected_box = db
+            print("db: {}, tracked_box: {}\nIOU: {}\ndist: {}\n\n".format(db, old_box, IOU, distance))
+            
+        return best_detected_box
+    else:
+        # currently, if the tracker works, we take it as correct
+        return tracked_box
+    
+
 
 if __name__ == '__main__':
 
@@ -67,7 +133,6 @@ if __name__ == '__main__':
         ret, frame = cap.read()
         # frame = cv2.flip(frame, 1)
         try:
-            print(frame.shape)
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         except:
             print("Error converting to RGB")
@@ -76,6 +141,7 @@ if __name__ == '__main__':
         if is_first:
             ok = tracker.init(frame, init_bbox)
             tracker_bbox = init_bbox
+            good_bbox = init_bbox # this is used in case the tracker fails
             is_first = False
         else:
             ok, tracker_bbox = tracker.update(frame)
@@ -85,9 +151,8 @@ if __name__ == '__main__':
             frame, detection_graph, sess)
 
         # draw bounding boxes
-        good_boxes = detector_utils.draw_box_on_image(
+        good_detector_boxes = detector_utils.draw_box_on_image(
             num_hands_detect, args.score_thresh, scores, boxes, im_width, im_height, frame)
-        print(good_boxes)
 
         # Calculate Frames per second (FPS)
         num_frames += 1
@@ -104,8 +169,13 @@ if __name__ == '__main__':
             #add the tracker bounding box
             p1 = (int(tracker_bbox[0]), int(tracker_bbox[1]))
             p2 = (int(tracker_bbox[0] + tracker_bbox[2]), int(tracker_bbox[1] + tracker_bbox[3]))
-            print(tracker_bbox)
-            cv2.rectangle(frame, p1, p2, (255,0,0), 2, 1)
+            # write the tracked box
+            cv2.rectangle(frame, p1, p2, (255,0,0), 3, 1)
+
+            #convert to the new type of annotation
+            tracker_bbox = xywh_to_xyxy(tracker_bbox)
+            good_bbox = combine_boxes(tracker_bbox, good_detector_boxes, good_bbox)
+            cv2.rectangle(frame, (int(good_bbox[0]), int(good_bbox[1])), (int(good_bbox[2]), int(good_bbox[3])), (0, 0, 255), 1, 1)
 
             cv2.imshow('Single-Threaded Detection', cv2.cvtColor(
                 frame, cv2.COLOR_RGB2BGR))
