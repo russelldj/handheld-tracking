@@ -6,11 +6,16 @@ import argparse
 import json
 import time
 import numpy as np
+import os
+from scipy.optimize import linear_sum_assignment
 
 detection_graph, sess = detector_utils.load_inference_graph()
-def bb_intersection_over_union(boxA, boxB):
+def bb_intersection_over_union(boxA, boxB, is_xywh=False):
     """it appears this takes in bbs in the form x1, y1, x2, y2"""
     # determine the (x, y)-coordinates of the intersection rectangle
+    if is_xywh:
+        boxA = xywh_to_xyxy(boxA)
+        boxB = xywh_to_xyxy(boxB)
     xA = max(boxA[0], boxB[0])
     yA = max(boxA[1], boxB[1])
     xB = min(boxA[2], boxB[2])
@@ -32,6 +37,7 @@ def bb_intersection_over_union(boxA, boxB):
     # return the intersection over union value
     return iou
 
+
 def corner_distances(boxA, boxB):
    "this might be a weird metric, but I think it is pretty informative"""
    del_x1  = np.abs(boxA[0] - boxB[0])
@@ -40,13 +46,39 @@ def corner_distances(boxA, boxB):
    del_y2  = np.abs(boxA[3] - boxB[3])
 
    return np.sqrt(np.square(del_x1) + np.square(del_y1)) + np.sqrt(np.square(del_x2) + np.square(del_y2))
-    
+
+
+def cost(bb_0, bb_1, is_xywh=False):
+    return 1 - bb_intersection_over_union(bb_0, bb_1, is_xywh)
+
+
+def match(b_f_initial, b_d_final, is_xywh=False):
+    # Both of these should be lists of either dicts or lists, see above 
+    affinity = np.zeros( [ len(b_f_initial), len( b_d_final ) ] )
+    for i, b_i in enumerate( b_f_initial ):
+        for j, b_f in enumerate( b_d_final ):
+            affinity[i,j] = cost( b_i, b_f, is_xywh)
+    row_ind, col_ind = linear_sum_assignment( affinity )
+    return ( row_ind, col_ind ) # just to be more explicit
+
+
+#def match_hands(good_hands, new_detected_hands):
+#    """these should both be lists in the same form, likely xyxy"""
+#    for 
+
 
 def xywh_to_xyxy(xywh_bbox):
     x1, y1, w, h = xywh_bbox
     x2 = x1 + w
     y2 = y1 + h
     return (x1, y1, x2, y2)
+
+
+def xyxy_to_xywh(xywh_bbox):
+    x1, y1, x2, y2 = xywh_bbox
+    w = x2 - x1
+    h = y2 - y1
+    return (x1, y1, w, h)
 
 
 def combine_boxes(tracked_box, detected_boxes, old_box):
@@ -59,7 +91,7 @@ def combine_boxes(tracked_box, detected_boxes, old_box):
     #print("tracked_box: {}".format(tracked_box))
     #print("detected_box: {}".format(detected_boxes))
     if tracked_box[2] == 0 and tracked_box[3] == 0:
-        print("\n\ntracking failed\n\n")
+        #print("\n\ntracking failed\n\n")
         max_affinity = -np.inf
         best_detected_box = (0, 0, 0, 0)
         for db in detected_boxes:# detected box
@@ -69,14 +101,13 @@ def combine_boxes(tracked_box, detected_boxes, old_box):
             if affinity > max_affinity:
                 max_affinity = affinity
                 best_detected_box = db
-            print("db: {}, tracked_box: {}\nIOU: {}\ndist: {}\n\n".format(db, old_box, IOU, distance))
+            #print("db: {}, tracked_box: {}\nIOU: {}\ndist: {}\n\n".format(db, old_box, IOU, distance))
             
-        return best_detected_box
+        return best_detected_box, True # whether tracking failed
     else:
         # currently, if the tracker works, we take it as correct
-        return tracked_box
+        return tracked_box, False # whether tracking failed
     
-
 
 if __name__ == '__main__':
 
@@ -102,6 +133,8 @@ if __name__ == '__main__':
     parser.add_argument('--video', type=str, help='path to the video file')
     parser.add_argument('--annotation-folder', type=str,
                                     default='/home/drussel1/data/custom_annotations/', help='the path to the data')
+    parser.add_argument('--which-object', type=int,
+                                    default=0, help='Usually either 0 or 1')
     args = parser.parse_args()
 
     cap = cv2.VideoCapture(args.video)
@@ -114,19 +147,27 @@ if __name__ == '__main__':
     # max number of hands we want to detect/track
     num_hands_detect = 2
 
-    cv2.namedWindow('Single-Threaded Detection', cv2.WINDOW_NORMAL)
+    #cv2.namedWindow('Single-Threaded Detection', cv2.WINDOW_NORMAL)
 
     #tracking section
-    annotation_file = args.annotation_folder + args.video.split('/')[-1].replace('mp4', 'json')
+    video_name = args.video.split('/')[-1].replace('.mp4', '')
+    annotation_file = args.annotation_folder + video_name + '.json'
     print(annotation_file)
     json = json.load(open(annotation_file, 'r'))
 
-    initial_bb_dict = list(json[0].values())[0]
+    initial_bb_dict = list(json[0].values())[args.which_object]
     print(initial_bb_dict)
     init_bbox = (initial_bb_dict['x'], initial_bb_dict['y'], initial_bb_dict['w'], initial_bb_dict['h'])
     tracker = cv2.TrackerKCF_create()
 
     is_first = True
+    reset_tracker = False
+   
+    print('rm -rf outputs/{}'.format(video_name))
+    print(os.system('rm -rf outputs/{}'.format(video_name)))
+    os.mkdir('outputs/{}'.format(video_name))
+
+    last_boxes = []
 
     while True:
         # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
@@ -143,7 +184,17 @@ if __name__ == '__main__':
             tracker_bbox = init_bbox
             good_bbox = init_bbox # this is used in case the tracker fails
             is_first = False
+        elif reset_tracker:
+            print("\n\nreset tracker: {}\n\n".format(num_frames))
+            print("good box {}".format(xyxy_to_xywh(good_bbox)))
+            #exit()
+            tracker = cv2.TrackerKCF_create()
+            ok = tracker.init(frame, xyxy_to_xywh(good_bbox))
+            print("ok {}".format(ok))
+            reset_tracker = False 
+            tracker_bbox = xyxy_to_xywh(good_bbox)
         else:
+            #TODO pick when to use each one and stick with it
             ok, tracker_bbox = tracker.update(frame)
 
         # actual detection
@@ -174,15 +225,15 @@ if __name__ == '__main__':
 
             #convert to the new type of annotation
             tracker_bbox = xywh_to_xyxy(tracker_bbox)
-            good_bbox = combine_boxes(tracker_bbox, good_detector_boxes, good_bbox)
-            cv2.rectangle(frame, (int(good_bbox[0]), int(good_bbox[1])), (int(good_bbox[2]), int(good_bbox[3])), (0, 0, 255), 1, 1)
+            good_bbox, reset_tracker = combine_boxes(tracker_bbox, good_detector_boxes, good_bbox)
+            cv2.rectangle(frame, (int(good_bbox[0]), int(good_bbox[1])), (int(good_bbox[2]), int(good_bbox[3])), (0, 0, 255), 2, 1)
 
-            cv2.imshow('Single-Threaded Detection', cv2.cvtColor(
+            #cv2.imshow('Single-Threaded Detection', cv2.cvtColor(
+            #    frame, cv2.COLOR_RGB2BGR))
+            #print('/home/drussel1/dev/handtracking/outputs/{}/output{:02d}.jpeg'.format(video_name, num_frames))
+            cv2.imwrite('/home/drussel1/dev/handtracking/outputs/{}/output{:05d}.jpeg'.format(video_name, num_frames), cv2.cvtColor(
                 frame, cv2.COLOR_RGB2BGR))
 
-            if cv2.waitKey(25) & 0xFF == ord('q'):
-                cv2.destroyAllWindows()
-                break
-        else:
-            print("frames processed: ",  num_frames,
-                  "elapsed time: ", elapsed_time, "fps: ", str(int(fps)))
+            #if cv2.waitKey(25) & 0xFF == ord('q'):
+            #    cv2.destroyAllWindows()
+            #    break
