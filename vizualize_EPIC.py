@@ -70,33 +70,38 @@ for index, row in annots.iterrows():
         break
     noun  = row['noun']
     bboxs  = ast.literal_eval(row['bounding_boxes'])
-    print(bboxs)
+    print('bbox is {}'.format(bboxs))
+    #this is to make sure it isn't the trivial case
     if bboxs != []:
         current_frame_id = int(row['frame'])
-    #in_ = raw_input('bboxs')
-    print("bboxs: {}, class: {}, video_frame_num: {}".format(bboxs, noun, current_frame_id))
+        #in_ = raw_input('bboxs')
+        #print("bboxs: {}, class: {}, video_frame_num: {}".format(bboxs, noun, current_frame_id))
 
-    if last_frame_id != current_frame_id: # this means you've collected a full batch of annots from last frame, but have not yet added the new one to the list
-                   # increment the video reader to the frame id of the last full set you read
-        cap.set(1,last_frame_id)
-        # get the image and the success value
-        ret, val = cap.read()
-        is_first = True
-        print("id list is {}, last_frame_id is {}".format(id_list, last_frame_id))
+        if last_frame_id != current_frame_id: # this means you've collected a full batch of annots from last frame, but have not yet added the new one to the list
+             # increment the video reader to the frame id of the last full set you read
+            cap.set(1,last_frame_id)
+            # get the image and the success value
+            ret, val = cap.read()
+            is_first = True
+            #print("id list is {}, last_frame_id is {}".format(id_list, last_frame_id))
+            print('obj_list is {}'.format(obj_list))
+            print('last_frame_id {}'.format(last_frame_id))
+            in_ = raw_input('obj_list')
 
-        for bbox_ in obj_list:
-            cv2.rectangle(val, (bbox_[1], bbox_[0]), (bbox_[1] + bbox_[3], bbox_[0] + bbox_[2]), (255,255,0), 3)
+            for bbox_ in obj_list:
+                val = cv2.rectangle(val, (bbox_[1], bbox_[0]), (bbox_[1] + bbox_[3], bbox_[0] + bbox_[2]), (255,255,0), 3)
+                print("bbox_ is{}".format(bbox_))
+                last_frame_id = current_frame_id
             cv2.imwrite('visualized_annots/{:06d}.jpeg'.format(last_frame_id), val)
-            last_frame_id = current_frame_id
-    
-    if is_first:
-        is_first = False
-        id_list  = [current_frame_id]
-        obj_list = []
-        obj_list += bboxs # they are actually a list
-    else:
-        id_list.append(current_frame_id)
-        obj_list += bboxs
+        
+        if is_first:
+            is_first = False
+            id_list  = [current_frame_id]
+            obj_list = []
+            obj_list = bboxs # they are actually a list
+        else:
+            id_list.append(current_frame_id)
+            obj_list = obj_list + bboxs
 
 #OLD
 
