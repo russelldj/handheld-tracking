@@ -161,6 +161,7 @@ if __name__ == '__main__':
         initial_bb_dict = list(json[0].values())[args.which_object]
         print(initial_bb_dict)
         init_bbox = (initial_bb_dict['x'], initial_bb_dict['y'], initial_bb_dict['w'], initial_bb_dict['h'])
+        #init_bbox = (168, 312, 100, 97)
 
     elif args.which_dataset == "ADL":
         video_name = args.video.split('/')[-1].replace('.MP4', '')
@@ -197,10 +198,10 @@ if __name__ == '__main__':
         # Expand dimensions since the model expects images to have shape: [1, None, None, 3]
         ret, frame = cap.read()
         # frame = cv2.flip(frame, 1)
-        try:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        except:
-            print("Error converting to RGB")
+        #try:
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        #except:
+        #    print("Error converting to RGB")
 
         #init tracker if it's the first frame
         if is_first:
@@ -222,24 +223,24 @@ if __name__ == '__main__':
             ok, tracker_bbox = tracker.update(frame)
 
         # actual detection
-        boxes, scores = detector_utils.detect_objects(
-            frame, detection_graph, sess)
+        #boxes, scores = detector_utils.detect_objects(
+        #    frame, detection_graph, sess)
 
         # draw bounding boxes
-        good_detector_boxes = detector_utils.draw_box_on_image(
-            num_hands_detect, args.score_thresh, scores, boxes, im_width, im_height, frame)
+        #good_detector_boxes = detector_utils.draw_box_on_image(
+        #    num_hands_detect, args.score_thresh, scores, boxes, im_width, im_height, frame)
 
         # Calculate Frames per second (FPS)
         num_frames += 1
-        elapsed_time = (datetime.datetime.now() -
-                        start_time).total_seconds()
-        fps = num_frames / elapsed_time
+        #elapsed_time = (datetime.datetime.now() -
+        #                start_time).total_seconds()
+        #fps = num_frames / elapsed_time
 
         if (args.display > 0):
             # Display FPS on frame
-            if (args.fps > 0):
-                detector_utils.draw_fps_on_image(
-                    str(good_bbox), frame)
+            #if (args.fps > 0):
+            #    detector_utils.draw_fps_on_image(
+            #        str(good_bbox), frame)
 
             #add the tracker bounding box
             p1 = (int(tracker_bbox[0]), int(tracker_bbox[1]))
@@ -249,15 +250,14 @@ if __name__ == '__main__':
 
             #convert to the new type of annotation
             tracker_bbox = xywh_to_xyxy(tracker_bbox)
-            good_bbox, reset_tracker = combine_boxes(tracker_bbox, good_detector_boxes, good_bbox)
+            #good_bbox, reset_tracker = combine_boxes(tracker_bbox, good_detector_boxes, good_bbox)
             #cv2.rectangle(frame, (int(good_bbox[0]), int(good_bbox[1])), (int(good_bbox[2]), int(good_bbox[3])), (0, 0, 255), 2, 1)
 
             #cv2.imshow('Single-Threaded Detection', cv2.cvtColor(
             #    frame, cv2.COLOR_RGB2BGR))
             #print('/home/drussel1/dev/handtracking/outputs/{}/output{:02d}.jpeg'.format(video_name, num_frames))
             print('/home/drussel1/dev/handtracking/outputs/{}/output{:05d}.jpeg'.format(video_name, num_frames))
-            cv2.imwrite('/home/drussel1/dev/handtracking/outputs/{}/output{:05d}.jpeg'.format(video_name, num_frames), cv2.cvtColor(
-                frame, cv2.COLOR_RGB2BGR))
+            cv2.imwrite('/home/drussel1/dev/handtracking/outputs/{}/output{:05d}.jpeg'.format(video_name, num_frames),frame)
 
             #if cv2.waitKey(25) & 0xFF == ord('q'):
             #    cv2.destroyAllWindows()
